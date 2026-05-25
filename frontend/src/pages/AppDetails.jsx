@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import LogMetrics from '../components/Logs/LogMetrics';
 import LogFilters from '../components/Logs/LogFilters';
@@ -6,7 +6,14 @@ import LogsTable from '../components/Logs/LogsTable';
 import { ArrowLeft, Layout, Terminal, Key, Calendar, Info, ShieldAlert } from 'lucide-react';
 
 export default function AppDetails() {
-  const { selectedApp, setSelectedAppId } = useContext(AppContext);
+  const { selectedApp, setSelectedAppId, logs, fetchLogs } = useContext(AppContext);
+
+  // Fetch logs for the selected app when it changes
+  React.useEffect(() => {
+    if (selectedApp) {
+      fetchLogs(selectedApp.name);
+    }
+  }, [selectedApp]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterLevel, setFilterLevel] = useState('ALL');
   const [sortBy, setSortBy] = useState('recent');
@@ -15,7 +22,7 @@ export default function AppDetails() {
   if (!selectedApp) return null;
 
   // Process logs: filtering and sorting
-  let processedLogs = [...selectedApp.logs];
+  let processedLogs = [...logs];
 
   // 1. Filter by Search Term
   if (searchTerm.trim()) {

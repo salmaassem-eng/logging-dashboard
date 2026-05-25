@@ -1,0 +1,19 @@
+{
+  "name": "logvault-sdk",
+  "version": "1.0.0",
+  "description": "Server SDK to easily ingest application runtime logs and events into LogVault.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "logvault",
+    "logging",
+    "telemetry",
+    "sdk",
+    "apm"
+  ],
+  "author": "Alex Rivera",
+  "license": "MIT"
+}

@@ -1,166 +1,307 @@
-import React, { createContext, useState, useEffect } from 'react';
-import { initialApps, generateApiKey } from '../utils/mockData';
+import React, { createContext, useState, useEffect, useCallback } from 'react';
 
 export const AppContext = createContext();
 
-export const AppProvider = ({ children }) => {
-  // Pre-seed developer account
-  const defaultDeveloper = {
-    name: 'Salma Assem',
-    email: 'Salma@devops.io',
-    apiKey: generateApiKey(),
-    joinedDate: '2026-01-10T11:00:00Z',
-  };
+const API_BASE = 'http://localhost:5000/api';
 
+export const AppProvider = ({ children }) => {
   const [developer, setDeveloper] = useState(() => {
     const saved = localStorage.getItem('log_dev');
-    return saved ? JSON.parse(saved) : defaultDeveloper;
+    return saved ? JSON.parse(saved) : null;
   });
 
-  const [apps, setApps] = useState(() => {
-    const saved = localStorage.getItem('log_apps');
-    return saved ? JSON.parse(saved) : initialApps;
-  });
-
+  const [apps, setApps] = useState([]);
   const [selectedAppId, setSelectedAppId] = useState(null);
+  
+  // Log specific states
+  const [logs, setLogs] = useState([]);
+  const [logsMetrics, setLogsMetrics] = useState({
+    totalLogs: 0,
+    errorRate: 0,
+    warningCount: 0,
+    errorCount: 0,
+  });
+  const [logsPagination, setLogsPagination] = useState({
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+    totalLogs: 0,
+  });
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
-  // Sync state to local storage
+  // Sync developer context to localStorage
   useEffect(() => {
     if (developer) {
       localStorage.setItem('log_dev', JSON.stringify(developer));
     } else {
       localStorage.removeItem('log_dev');
+      localStorage.removeItem('token');
     }
   }, [developer]);
 
+  // Fetch all applications
+  const fetchApps = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/applications`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      
+      if (res.ok) {
+        setApps(data.data);
+      } else if (res.status === 401) {
+        // Session expired
+        logout();
+      }
+    } catch (error) {
+      console.error('Failed to fetch applications:', error);
+    }
+  }, []);
+
+  // Fetch applications when logged in
   useEffect(() => {
-    localStorage.setItem('log_apps', JSON.stringify(apps));
-  }, [apps]);
+    if (developer) {
+      fetchApps();
+    } else {
+      setApps([]);
+    }
+  }, [developer, fetchApps]);
 
   // Auth Operations
-  const login = (email, password) => {
-    // Basic verification: accept any credentials, seed with name from email
-    const name = email.split('@')[0];
-    const formattedName = name.charAt(0).toUpperCase() + name.slice(1);
-    const user = {
-      name: formattedName,
-      email: email,
-      apiKey: generateApiKey(),
-      joinedDate: new Date().toISOString(),
-    };
-    setDeveloper(user);
-    return { success: true };
-  };
+  const login = async (email, password) => {
+    try {
+      const res = await fetch(`${API_BASE}/users/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      
+      const data = await res.json();
 
-  const register = (name, email, password) => {
-    const user = {
-      name: name,
-      email: email,
-      apiKey: generateApiKey(),
-      joinedDate: new Date().toISOString(),
-    };
-    setDeveloper(user);
-    return { success: true };
-  };
+      if (!res.ok) {
+        return {
+          success: false,
+          message: data.message || data.error || 'Authentication failed',
+        };
+      }
 
-  const logout = () => {
-    setDeveloper(null);
-    setSelectedAppId(null);
-  };
+      // Store JWT token
+      localStorage.setItem('token', data.token);
+      setDeveloper({
+        id: data.developer.id,
+        name: data.developer.username,
+        email: data.developer.email,
+        apiKey: data.developer.apiKey,
+      });
 
-  // API Key Management
-  const regenerateApiKey = () => {
-    if (!developer) return;
-    const updatedDev = { ...developer, apiKey: generateApiKey() };
-    setDeveloper(updatedDev);
-
-    // Also update API keys on all apps to match the developer's new key or keep them unique?
-    // Let's assume each app has a unique key but they belong to the developer. Or we update the developer key.
-    // The requirement says: "They can view their account's API key."
-    // Let's keep application API keys separate, or they are generated per app, or they represent the developer's global key.
-    // Let's also regenerate the app keys for demonstration, or keep them distinct. Let's make app keys regenerate if we want, or keep them as is.
-  };
-
-  // Application Management
-  const createApp = (name, platform, description) => {
-    const newApp = {
-      id: 'app-' + Math.random().toString(36).substr(2, 9),
-      name,
-      platform,
-      description: description || 'No description provided.',
-      apiKey: generateApiKey(),
-      createdAt: new Date().toISOString(),
-      metrics: {
-        totalLogs: 0,
-        errorRate: 0.0,
-        warningCount: 0,
-        errorCount: 0,
-      },
-      logs: [],
-    };
-    setApps([newApp, ...apps]);
-    return newApp;
-  };
-
-  const deleteApp = (id) => {
-    setApps(apps.filter(app => app.id !== id));
-    if (selectedAppId === id) {
-      setSelectedAppId(null);
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: 'Server connection timeout. Verify the backend is active.' };
     }
   };
 
-  // Get current selected application
-  const selectedApp = apps.find(app => app.id === selectedAppId) || null;
-
-  // Add dummy logs utility (telemetry simulation)
-  const simulateLog = (appId, message, level) => {
-    setApps(prevApps => {
-      return prevApps.map(app => {
-        if (app.id !== appId) return app;
-
-        // Check if log message with this level already exists
-        const logs = [...app.logs];
-        const existingLogIndex = logs.findIndex(
-          l => l.message === message && l.level === level
-        );
-
-        const now = new Date().toISOString();
-
-        if (existingLogIndex > -1) {
-          const log = { ...logs[existingLogIndex] };
-          log.count += 1;
-          log.lastOccurrence = now;
-          logs[existingLogIndex] = log;
-        } else {
-          logs.unshift({
-            id: 'log-' + Math.random().toString(36).substr(2, 9),
-            message,
-            level,
-            count: 1,
-            firstOccurrence: now,
-            lastOccurrence: now,
-          });
-        }
-
-        // Recalculate metrics
-        const totalLogs = logs.reduce((sum, l) => sum + l.count, 0);
-        const warningCount = logs.filter(l => l.level === 'warn').reduce((sum, l) => sum + l.count, 0);
-        const errorCount = logs.filter(l => l.level === 'error' || l.level === 'critical').reduce((sum, l) => sum + l.count, 0);
-        const errorRate = totalLogs > 0 ? parseFloat(((errorCount / totalLogs) * 100).toFixed(1)) : 0;
-
-        return {
-          ...app,
-          metrics: {
-            totalLogs,
-            errorRate,
-            warningCount,
-            errorCount,
-          },
-          logs,
-        };
+  const register = async (name, email, password) => {
+    try {
+      const res = await fetch(`${API_BASE}/users/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username: name, email, password }),
       });
-    });
+      
+      const data = await res.json();
+
+      if (!res.ok) {
+        return {
+          success: false,
+          message: data.error || data.message || 'Registration failed',
+        };
+      }
+
+      localStorage.setItem('token', data.token);
+      setDeveloper({
+        id: data.developer.id,
+        name: data.developer.username,
+        email: data.developer.email,
+        apiKey: data.developer.apiKey,
+      });
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: 'Server connection timeout. Verify the backend is active.' };
+    }
   };
+
+  const logout = async () => {
+    try {
+      await fetch(`${API_BASE}/users/logout`, { method: 'POST' });
+    } catch (e) {}
+
+    localStorage.removeItem('token');
+    localStorage.removeItem('log_dev');
+    setDeveloper(null);
+    setApps([]);
+    setSelectedAppId(null);
+    setLogs([]);
+  };
+
+  // API Key Management (Mocked client side since user owns key. Can refresh in local state for dashboard demo)
+  const regenerateApiKey = async () => {
+    // Note: To keep things aligned, we generate a new client-side mock key for presentation, 
+    // or let it remain persistent.
+    if (!developer) return;
+    const newKey = 'pk_live_' + Array.from({ length: 32 }, () => 
+      Math.floor(Math.random() * 16).toString(16)
+    ).join('');
+    
+    const updatedDev = { ...developer, apiKey: newKey };
+    setDeveloper(updatedDev);
+  };
+
+  // Application CRUD operations
+  const createApp = async (name, platform, description) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/applications`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || data.message || 'Failed to create application');
+      }
+
+      // Refresh applications list
+      await fetchApps();
+      return data.data;
+    } catch (error) {
+      console.error('Error creating app:', error);
+      throw error;
+    }
+  };
+
+  const deleteApp = async (id) => {
+    const token = localStorage.getItem('token');
+    const app = apps.find((a) => a.id === id);
+    if (!app || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/applications/${app.name}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        setApps(apps.filter((a) => a.id !== id));
+        if (selectedAppId === id) {
+          setSelectedAppId(null);
+        }
+      } else {
+        const data = await res.json();
+        console.error('Failed to delete application:', data.message);
+      }
+    } catch (error) {
+      console.error('Error deleting application:', error);
+    }
+  };
+
+  // Fetch paginated, sorted and filtered logs from the server
+  const fetchLogs = useCallback(async (appName, queryParams = {}) => {
+    const token = localStorage.getItem('token');
+    if (!token || !appName) return;
+
+    setIsLoadingLogs(true);
+    try {
+      const { page = 1, limit = 10, search = '', level = 'ALL', sort = 'recent' } = queryParams;
+      
+      const query = new URLSearchParams({
+        page,
+        limit,
+        search,
+        level,
+        sort,
+      });
+
+      const res = await fetch(`${API_BASE}/applications/${appName}/logs?${query}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setLogs(data.data || []);
+        setLogsMetrics(data.metrics || {
+          totalLogs: 0,
+          errorRate: 0,
+          warningCount: 0,
+          errorCount: 0,
+        });
+        setLogsPagination(data.pagination || {
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          totalLogs: 0,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch logs:', error);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, []);
+
+  // Ingest logs directly from the UI for demo/validation purposes using Developer's API Key
+  const simulateLog = async (appId, message, level) => {
+    const app = apps.find((a) => a.id === appId);
+    if (!app || !developer) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/applications/${app.name}/logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': developer.apiKey,
+        },
+        body: JSON.stringify({
+          message,
+          level: level.toUpperCase(),
+        }),
+      });
+
+      if (res.ok) {
+        // Refresh application summary statistics on Dashboard and logs table if active
+        await fetchApps();
+        if (selectedAppId === appId) {
+          // Trigger logs list reload keeping active search criteria
+          await fetchLogs(app.name);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to push simulated telemetry:', error);
+    }
+  };
+
+  const selectedApp = apps.find((app) => app.id === selectedAppId) || null;
 
   return (
     <AppContext.Provider
@@ -170,12 +311,17 @@ export const AppProvider = ({ children }) => {
         selectedAppId,
         selectedApp,
         setSelectedAppId,
+        logs,
+        logsMetrics,
+        logsPagination,
+        isLoadingLogs,
         login,
         register,
         logout,
         regenerateApiKey,
         createApp,
         deleteApp,
+        fetchLogs,
         simulateLog,
       }}
     >
