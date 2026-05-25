@@ -1,9 +1,9 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState } from 'react';
 import { AppContext } from '../context/AppContext';
 import LogMetrics from '../components/Logs/LogMetrics';
 import LogFilters from '../components/Logs/LogFilters';
 import LogsTable from '../components/Logs/LogsTable';
-import { ArrowLeft, Layout, Terminal, Key, Calendar, Info, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Terminal, Key, Calendar } from 'lucide-react';
 
 export default function AppDetails() {
   const { selectedApp, setSelectedAppId, logs, fetchLogs } = useContext(AppContext);
